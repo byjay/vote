@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>투표 시스템 사용 가이드</title>
+<style>
+  @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@600;700&display=swap');
+
+  :root {
+    --primary: #1e3a8a;
+    --accent: #b08d3f;
+    --bg: #faf9f6;
+    --surface: #ffffff;
+    --ink: #1c1917;
+    --ink-soft: #6b6459;
+    --line: rgba(28, 25, 23, 0.08);
+    --sans: 'Pretendard', sans-serif;
+    --serif: 'Noto Serif KR', serif;
+  }
+
+  body {
+    margin: 0;
+    padding: 0;
+    font-family: var(--sans);
+    background-color: var(--bg);
+    color: var(--ink);
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  header {
+    background: radial-gradient(800px 400px at 50% 0%, rgba(30, 58, 138, 0.08), transparent 70%), var(--surface);
+    border-bottom: 1px solid var(--line);
+    padding: 50px 24px;
+    text-align: center;
+  }
+
+  header h1 {
+    font-family: var(--serif);
+    font-size: 2.2em;
+    color: var(--primary);
+    margin: 0 0 12px;
+  }
+
+  header p {
+    color: var(--ink-soft);
+    font-size: 1.05em;
+    max-width: 600px;
+    margin: 0 auto;
+  }
+
+  .container {
+    max-width: 900px;
+    margin: 40px auto 80px;
+    padding: 0 24px;
+  }
+
+  .section {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 24px;
+    padding: 36px;
+    margin-bottom: 30px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.02);
+  }
+
+  .section h2 {
+    font-family: var(--serif);
+    font-size: 1.45em;
+    color: var(--primary);
+    margin-top: 0;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 2px solid var(--line);
+    padding-bottom: 12px;
+  }
+
+  .section h2 span.icon {
+    color: var(--accent);
+  }
+
+  .section h3 {
+    font-size: 1.05em;
+    color: var(--ink);
+    margin-top: 24px;
+    margin-bottom: 10px;
+    font-weight: 700;
+  }
+
+  p { margin-top: 0; margin-bottom: 16px; color: var(--ink); }
+
+  ol, ul { margin-top: 0; margin-bottom: 20px; padding-left: 22px; }
+  li { margin-bottom: 8px; }
+
+  code {
+    background-color: rgba(30, 58, 138, 0.05);
+    color: var(--primary);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 0.9em;
+    font-weight: 600;
+  }
+
+  .alert {
+    background-color: color-mix(in srgb, var(--accent) 8%, #fff);
+    border-left: 4px solid var(--accent);
+    padding: 16px 20px;
+    border-radius: 12px;
+    margin: 20px 0;
+    font-size: 0.92em;
+    color: var(--ink-soft);
+  }
+  .alert b { color: var(--ink); }
+
+  .alert-danger {
+    background-color: rgba(239, 106, 90, 0.06);
+    border-left: 4px solid #ef6a5a;
+    padding: 16px 20px;
+    border-radius: 12px;
+    margin: 20px 0;
+    font-size: 0.92em;
+    color: #c2410c;
+  }
+
+  .step-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin: 20px 0;
+  }
+  .step-card {
+    background: rgba(30,58,138,0.03);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 20px;
+    text-align: center;
+  }
+  .step-card .num {
+    font-family: var(--serif);
+    font-size: 1.6em;
+    color: var(--accent);
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .step-card .label { font-size: 0.9em; font-weight: 600; }
+  .step-card .desc { font-size: 0.82em; color: var(--ink-soft); margin-top: 4px; }
+
+  footer {
+    text-align: center;
+    padding: 40px 24px;
+    color: var(--ink-soft);
+    font-size: 0.85em;
+    border-top: 1px solid var(--line);
+    background: var(--surface);
+  }
+</style>
+<script src="https://code.iconify.design/3/3.1.0/iconify.min.js"></script>
+</head>
+<body>
+
+<header>
+  <h1>투표 시스템 사용 가이드</h1>
+  <p>설문 생성부터 회원 등록, 투표 진행, 결과 확인까지 — 관리자를 위한 전체 운영 가이드입니다.</p>
+</header>
+
+<div class="container">
+
+  <!-- 섹션 1: 투표 참여 방법 (일반 사용자) -->
+  <div class="section">
+    <h2><span class="iconify icon" data-icon="solar:user-check-rounded-bold"></span> 1. 투표 참여 방법 (회원)</h2>
+    <p>회원은 아래 순서대로 진행하면 됩니다. 구글 계정만 있으면 됩니다.</p>
+
+    <div class="step-grid">
+      <div class="step-card">
+        <div class="num">①</div>
+        <div class="label">투표 링크 접속</div>
+        <div class="desc">관리자가 보낸 링크를 클릭하거나, 주소창에 직접 입력</div>
+      </div>
+      <div class="step-card">
+        <div class="num">②</div>
+        <div class="label">구글 로그인</div>
+        <div class="desc">[Google 계정으로 로그인] 버튼 클릭</div>
+      </div>
+      <div class="step-card">
+        <div class="num">③</div>
+        <div class="label">이름 입력</div>
+        <div class="desc">등록된 본인의 실명(이름)을 입력</div>
+      </div>
+      <div class="step-card">
+        <div class="num">④</div>
+        <div class="label">안건 응답 후 제출</div>
+        <div class="desc">모든 안건에 응답 후 [투표 제출] 클릭</div>
+      </div>
+    </div>
+
+    <div class="alert">
+      <b>💡 동명이인이 있는 경우:</b><br />
+      같은 이름의 회원이 2명 이상 등록되어 있으면, 이름 입력 후 <b>전화번호를 추가로 입력</b>하는 단계가 자동으로 표시됩니다.
+    </div>
+    <div class="alert">
+      <b>💡 다시 투표하기:</b><br />
+      이미 투표한 경우 결과 화면에서 <b>[다시 투표하기]</b> 버튼을 눌러 답변을 수정하고 재제출할 수 있습니다.
+    </div>
+  </div>
+
+  <!-- 섹션 2: 설문(투표) 생성 및 설정 -->
+  <div class="section">
+    <h2><span class="iconify icon" data-icon="solar:settings-bold"></span> 2. 설문 생성 및 설정</h2>
+    <p>관리자 페이지 → <b>설정·디자인</b> 탭에서 투표의 기본 정보와 안건을 구성합니다.</p>
+
+    <h3>새 설문 만들기</h3>
+    <ol>
+      <li>상단의 <code>[+ 새 설문]</code> 버튼 클릭 → 새 설문이 생성됩니다.</li>
+      <li>드롭다운에서 설문을 선택하여 전환할 수 있습니다.</li>
+      <li>필요 없는 설문은 <code>[삭제]</code> 버튼으로 제거합니다.</li>
+    </ol>
+
+    <h3>제목 / 부제 설정</h3>
+    <ul>
+      <li><b>제목</b>: 투표 화면 상단에 크게 표시되는 이름 (예: <code>정기총회 투표</code>)</li>
+      <li><b>부제 / 안내문</b>: 제목 아래에 표시되는 설명 문구</li>
+    </ul>
+
+    <h3>안건(문항) 등록</h3>
+    <ul>
+      <li><b>개별 추가</b>: <code>[+ 문항 추가]</code> 클릭 → 질문 텍스트 입력</li>
+      <li><b>일괄 추가</b>: <code>[일괄 추가]</code> 클릭 → 한 줄에 안건 하나씩 입력 → 한번에 등록</li>
+    </ul>
+
+    <h3>안건 유형</h3>
+    <ul>
+      <li><b>찬반 투표</b>: 가/부 두 가지 선택 (기본값)</li>
+      <li><b>객관식 (직접 입력)</b>: 선택지를 직접 작성 (예: <code>소고기, 회, 삼겹살</code>)</li>
+      <li><b>4지선다 / 5지선다</b>: 1~4 또는 1~5 번호형 객관식</li>
+    </ul>
+
+    <div class="alert">
+      <b>💡 추가 질문(조건부 문항):</b><br />
+      각 안건의 <code>[+ 추가질문]</code> 버튼으로, 특정 답변 선택 시에만 나타나는 하위 질문을 연결할 수 있습니다.
+    </div>
+  </div>
+
+  <!-- 섹션 3: 회원 등록 -->
+  <div class="section">
+    <h2><span class="iconify icon" data-icon="solar:users-group-two-rounded-bold"></span> 3. 회원 명단 등록</h2>
+    <p>관리자 페이지 → <b>회원</b> 탭에서 투표 참여 대상자를 등록합니다.</p>
+
+    <h3>입력 형식</h3>
+    <p>텍스트 입력란에 한 줄에 회원 한 명씩 입력합니다. 아래 형식을 모두 지원합니다:</p>
+    <ul>
+      <li><code>이름</code> — 이름만 (가장 간단)</li>
+      <li><code>이름 전화번호</code> — 동명이인 구분 시 필요</li>
+      <li><code>이름 이메일 전화번호</code> — 발송 기능 활용 시</li>
+    </ul>
+
+    <div class="alert">
+      <b>💡 엑셀에서 복사·붙여넣기:</b><br />
+      엑셀에서 이름/전화번호 열을 선택 후 <code>Ctrl+C</code> → 입력란에 <code>Ctrl+V</code>하면 자동으로 파싱됩니다. (구분자: 공백 또는 탭)
+    </div>
+
+    <h3>등록 모드</h3>
+    <ul>
+      <li><b>회원 등록 (중복제외 추가)</b>: 기존 명단 유지, 새 회원만 추가</li>
+      <li><b>회원 일괄 덮어쓰기</b>: 기존 명단 전체 삭제 후 새 목록으로 교체 (투표 기록도 초기화됨)</li>
+    </ul>
+
+    <div class="alert-danger">
+      <b>⚠️ 덮어쓰기 주의:</b> 회원 일괄 덮어쓰기를 실행하면 기존의 모든 투표 기록이 삭제되어 복구할 수 없습니다.
+    </div>
+  </div>
+
+  <!-- 섹션 4: 투표 링크 발송 -->
+  <div class="section">
+    <h2><span class="iconify icon" data-icon="solar:share-bold"></span> 4. 투표 링크 발송</h2>
+    <p>관리자 페이지 → <b>발송</b> 탭에서 회원별 개인 투표 링크가 담긴 메시지를 전송합니다.</p>
+
+    <h3>메시지 템플릿 변수</h3>
+    <ul>
+      <li><code>{name}</code> — 회원 이름으로 자동 치환</li>
+      <li><code>{link}</code> — 해당 회원 전용 투표 링크</li>
+      <li><code>{phone}</code> — 등록된 전화번호</li>
+    </ul>
+
+    <h3>발송 방법</h3>
+    <ul>
+      <li><b>개별 복사</b>: 각 회원 카드의 <code>[복사]</code> 버튼 클릭</li>
+      <li><b>카카오톡 전송</b>: <code>[카카오 전송]</code> 클릭 → 카카오 친구/대화방 선택 팝업</li>
+      <li><b>전체 복사 / TXT 다운로드</b>: 전체 메시지를 한 번에 복사하거나 파일로 저장 후 외부 발송 서비스 활용</li>
+    </ul>
+  </div>
+
+  <!-- 섹션 5: 결과 확인 -->
+  <div class="section">
+    <h2><span class="iconify icon" data-icon="solar:chart-square-bold"></span> 5. 실시간 결과 확인</h2>
+    <p>관리자 페이지 → <b>결과</b> 탭에서 집계 현황을 실시간으로 모니터링합니다.</p>
+
+    <ul>
+      <li><b>투표 현황</b>: 현재 제출 수 / 전체 회원 수를 상단에 표시</li>
+      <li><b>자동 새로고침</b>: <code>[10초 자동 새로고침]</code> 체크 시 화면 자동 갱신</li>
+      <li><b>안건별 그래프</b>: 각 안건의 선택지별 득표 수를 가로형 막대그래프로 표시</li>
+      <li><b>집계 초기화</b>: 회원 명단은 유지한 채 투표 기록만 삭제하여 재투표 진행 가능</li>
+    </ul>
+
+    <div class="alert">
+      <b>💡 일반 회원의 결과 보기:</b><br />
+      투표 완료 화면에서 <b>[결과 보기]</b> 버튼을 누르면, 개인 정보 없이 집계 결과만 익명으로 확인할 수 있습니다.
+    </div>
+  </div>
+
+  <!-- 섹션 6: 관리자 접근 -->
+  <div class="section">
+    <h2><span class="iconify icon" data-icon="solar:shield-keyhole-bold"></span> 6. 관리자 페이지 접속</h2>
+
+    <ul>
+      <li>투표 화면 우하단 톱니바퀴(⚙) 버튼 클릭 → 관리자 페이지 이동</li>
+      <li>또는 URL에 <code>?admin=1</code>을 붙이면 바로 접근 가능</li>
+      <li>관리자 계정(<code>designssir@gmail.com</code> 또는 이름이 <b>천세종</b>인 구글 계정)으로 로그인하면 자동 인식됩니다</li>
+    </ul>
+
+    <div class="alert">
+      <b>💡 수퍼관리자:</b><br />
+      <code>designssir@gmail.com</code> 계정은 별도의 이름 입력 없이 구글 로그인만으로 관리자 권한이 자동 부여됩니다.
+    </div>
+  </div>
+
+  <!-- 섹션 7: 로그아웃 -->
+  <div class="section">
+    <h2><span class="iconify icon" data-icon="solar:logout-3-bold"></span> 7. 로그아웃</h2>
+    <p>투표가 끝난 후 또는 다른 계정으로 전환하려면 로그아웃합니다.</p>
+
+    <h3>일반 회원 (투표자)</h3>
+    <ul>
+      <li>투표 완료 화면 하단의 <b>[로그아웃]</b> 버튼 클릭</li>
+      <li>또는 브라우저를 닫거나 페이지를 새로고침하면 자동으로 로그인 화면으로 돌아갑니다</li>
+    </ul>
+
+    <h3>관리자</h3>
+    <ul>
+      <li>관리자 페이지 우상단 <b>[로그아웃]</b> 버튼 클릭</li>
+      <li>로그아웃 후 다시 구글 계정으로 로그인해야 합니다</li>
+    </ul>
+
+    <div class="alert">
+      <b>💡 자동 로그아웃:</b><br />
+      보안을 위해 페이지를 새로고침하거나 재접속하면 이전 로그인 정보가 자동으로 초기화됩니다. 매번 새로 구글 로그인이 필요합니다.
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  <p>&copy; 2026 SEcMS 투표 시스템</p>
+</footer>
+
+</body>
+</html>

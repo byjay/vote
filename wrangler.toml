@@ -1,0 +1,9 @@
+name = "member-vote"
+compatibility_date = "2024-11-01"
+pages_build_output_dir = "public"
+
+# 저장소: D1 (KV 무료 쓰기한도 1,000회/일 문제로 이전. D1은 100,000회/일 별도 쿼터)
+[[d1_databases]]
+binding = "VOTE_DB"
+database_name = "vote-db"
+database_id = "0239362a-5ba6-4baf-9458-cb413566d4e5"
