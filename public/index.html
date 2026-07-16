@@ -1189,6 +1189,7 @@ let SURVEY_ID = "1";
 let VOTER_KEY = "";
 let SESSION_TOKEN = "";
 let SELECTED_CHOICE = null;
+let ANSWERS = {};
 
 // 로딩 화면 숨김
 function showView(viewId) {
@@ -1308,20 +1309,22 @@ function initAppEvents() {
   });
 
   // 플레이스토어 심사용 개인인증 정보 완전 파기 (잊힐 권리 동의철회 연동)
-  $("btnDeleteMyData").addEventListener("click", async () => {
+  if ($("btnDeleteMyData")) {
+    $("btnDeleteMyData").addEventListener("click", async () => {
     if (!confirm("정말 본인의 핸드폰 인증 정보 및 투표 이력을 서버에서 완전히 삭제하시겠습니까?\n삭제 시 본인 인증 정보가 영구 파기됩니다.")) return;
     const { ok, data } = await fetchJson("/api/delete-my-data", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ surveyId: SURVEY_ID, voterkey: VOTER_KEY })
     });
-    if (ok) {
-      alert("개인 정보 및 인증 데이터가 영구적으로 완전 파기되었습니다.");
-      location.reload();
-    } else {
-      alert(data.error || "데이터 삭제 중 오류가 발생했습니다.");
-    }
-  });
+      if (ok) {
+        alert("개인 정보 및 인증 데이터가 영구적으로 완전 파기되었습니다.");
+        location.reload();
+      } else {
+        alert(data.error || "데이터 삭제 중 오류가 발생했습니다.");
+      }
+    });
+  }
 
   // 인증번호 확인
   $("btnVerifySms").addEventListener("click", async () => {
@@ -1361,8 +1364,7 @@ function initAppEvents() {
     }
   });
 
-  // 동적 문항 응답 데이터 저장소
-  let ANSWERS = {};
+  // 동적 문항 응답 데이터 저장소 (글로벌 ANSWERS 사용)
 
   // 가시성 판단 헬퍼 (백엔드 _utils.js의 isQuestionVisible과 100% 싱크)
   function isQuestionVisible(q, byId, answers) {
