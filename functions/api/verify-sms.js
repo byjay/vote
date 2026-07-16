@@ -35,11 +35,12 @@ export async function onRequestPost({ request, env }) {
   // 인증 성공 시 일회성 코드 삭제
   await db.delete(smsKey);
 
-  // 3. 투표 권한 세션 토큰 생성 (D1 임시 저장)
+  // 3. 투표 권한 세션 토큰 생성 (D1 임시 저장 시 인증 채널도 전달)
   const sessionToken = "sess_" + Math.random().toString(36).substring(2) + Date.now().toString(36);
   const sessionData = {
     voterkey,
     surveyId,
+    channel: smsInfo.channel || "sms",
     expiresAt: Date.now() + 60 * 60 * 1000 // 1시간 유효
   };
 

@@ -8,6 +8,7 @@ import {
   store,
   BALLOT_PREFIX,
   normalizePhone,
+  decryptPhone,
 } from "../_utils.js";
 
 // POST /api/vote
@@ -124,11 +125,18 @@ export async function onRequestPost({ request, env }) {
   // 4. 참여 완료 플래그 세팅 (voterkey 기준)
   await db.put(votedKey(surveyId, voter.id), "1");
 
-  // 5. 투표 기록 저장
+  // 5. 투표 기록 저장 (플레이스토어 심사용 수단 및 마스킹 번호 포함)
   const surveyTitle = config.title || "기본 설문";
+  const channel = session.channel || "sms";
+  const decrypted = await decryptPhone(member.phone || "");
+  const phoneMasked = decrypted.replace(/(\d{3})-?(\d{3,4})-?(\d{4})/, "$1-$2-****");
+
   await db.put("voter_record:" + surveyId + ":" + voterkey, JSON.stringify({
     name: voter.name,
     email: voter.email,
+    phone: phoneMasked,
+    channel: channel,
+    channelName: channel === "kakao" ? "카카오톡" : "문자(SMS)",
     timestamp: new Date().toISOString(),
     surveyTitle,
   }));

@@ -1141,13 +1141,14 @@
       <!-- 참여자 기록 -->
       <div class="card" style="margin-top:20px;">
         <div class="card-title">참여자 실명 기록</div>
-        <p style="font-size:0.83em; color:var(--a-ink-soft); margin-bottom:16px;">구글 로그인 후 자기 기재한 실명 기록입니다. 투표 내용과는 분리되어 있습니다.</p>
+        <p style="font-size:0.83em; color:var(--a-ink-soft); margin-bottom:16px;">본인인증을 완료한 투표 참여자 실명 기록입니다. 익명 투표용지와는 완전히 분리되어 안전하게 수집됩니다.</p>
         <div style="overflow-x:auto;">
           <table id="voterRecordTable" style="width:100%; border-collapse:collapse; font-size:0.85em;">
             <thead>
               <tr style="border-bottom:1px solid var(--a-line);">
                 <th style="text-align:left; padding:8px 10px; color:var(--a-ink-soft); font-weight:600;">이름</th>
-                <th style="text-align:left; padding:8px 10px; color:var(--a-ink-soft); font-weight:600;">구글 이메일</th>
+                <th style="text-align:left; padding:8px 10px; color:var(--a-ink-soft); font-weight:600;">인증 수단</th>
+                <th style="text-align:left; padding:8px 10px; color:var(--a-ink-soft); font-weight:600;">휴대폰 번호</th>
                 <th style="text-align:left; padding:8px 10px; color:var(--a-ink-soft); font-weight:600;">참여 시각</th>
               </tr>
             </thead>
@@ -1943,9 +1944,13 @@ async function fetchResults() {
         tdName.textContent = r.name;
         tdName.style.padding = "8px 10px";
         
-        const tdEmail = document.createElement("td");
-        tdEmail.textContent = r.email || "-";
-        tdEmail.style.padding = "8px 10px";
+        const tdChannel = document.createElement("td");
+        tdChannel.textContent = r.channelName || "문자(SMS)";
+        tdChannel.style.padding = "8px 10px";
+
+        const tdPhone = document.createElement("td");
+        tdPhone.textContent = r.phone || "-";
+        tdPhone.style.padding = "8px 10px";
         
         const tdTime = document.createElement("td");
         tdTime.textContent = new Date(r.timestamp).toLocaleString();
@@ -1953,7 +1958,8 @@ async function fetchResults() {
         tdTime.style.color = "var(--a-ink-soft)";
 
         tr.appendChild(tdName);
-        tr.appendChild(tdEmail);
+        tr.appendChild(tdChannel);
+        tr.appendChild(tdPhone);
         tr.appendChild(tdTime);
         tbody.appendChild(tr);
       });

@@ -37,9 +37,9 @@ export async function onRequestPost({ request, env }) {
   const code = randomPassword(6).replace(/[^0-9]/g, "7").slice(0, 6);
   const finalCode = code.length === 6 ? code : "123456";
 
-  // 4. D1에 5분 유효시간으로 저장
+  // 4. D1에 5분 유효시간 및 발송 채널 정보 저장
   const expiresAt = Date.now() + 5 * 60 * 1000;
-  await db.put(`sms_code:${surveyId}:${voterkey}`, JSON.stringify({ code: finalCode, expiresAt }));
+  await db.put(`sms_code:${surveyId}:${voterkey}`, JSON.stringify({ code: finalCode, expiresAt, channel }));
 
   // 5. 발송 채널별 실전 메시지 발송 분기 (CoolSMS 등 외부 API 연동 시)
   let sentRealSms = false;
