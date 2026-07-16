@@ -402,9 +402,309 @@ CREATE TABLE audit_logs (... tenant_id TEXT, action TEXT, actor TEXT, ...);
 
 ---
 
-## 11. 다음 단계 (즉시 실행 가능)
+## 11. 보안 및 개인정보 보호 설계 (Security & Privacy by Design)
 
-### 11.1 2주 내 실행
+> 마스터 추가 보안 지시사항: 테넌트별 독립 관리자 권한·설정 격리, 회원 휴태폰 번호 해싱/암호화, 개인정볼볼호법·망법 준수, 구글 플레이스토어 등록 대응을 SaaS 설계에 내재화합니다.
+
+### 11.1 테넌트별 독립적인 관리자 권한 및 설정 격리
+
+#### 11.1.1 데이터 격리 모델
+
+현재는 단일 D1 데이터베이스 내 `members`, `config`, `ballots` 등 키 기반으로 운영되며, SaaS 전환 시 모든 테이블에 `tenant_id` 컬럼을 추가하고 **행 단위 격리(Row-Level Isolation)**를 적용합니다.
+
+```sql
+-- 테넌트 마스터
+CREATE TABLE tenants (
+  id TEXT PRIMARY KEY,                 -- ex) t_abc123
+  name TEXT NOT NULL,
+  plan TEXT NOT NULL,                  -- free / basic / standard / pro / enterprise
+  max_votes_monthly INTEGER,
+  max_members INTEGER,
+  custom_domain TEXT,
+  branding JSON,
+  db_shard TEXT DEFAULT 'shared',      -- shared / dedicated
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 테넌트별 관리자 계정 (RBAC)
+CREATE TABLE tenant_admins (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  email TEXT NOT NULL,
+  password_hash TEXT NOT NULL,         -- bcrypt/Argon2id
+  role TEXT NOT NULL,                  -- owner / admin / manager / viewer
+  mfa_secret TEXT,                     -- TOTP 시드 (AES 암호화 저장)
+  last_login_at DATETIME,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(tenant_id, email)
+);
+
+-- 모든 업무 테이블에 tenant_id 포함
+CREATE TABLE votes (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  survey_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  config JSON,
+  created_by TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE members (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  survey_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  email TEXT,
+  phone_hash TEXT,                     -- 복원 불가능한 해시
+  phone_enc TEXT,                      -- AES-256-GCM 암호문 (검색용 HMAC 인덱스 별도)
+  voted BOOLEAN DEFAULT FALSE,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE audit_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  tenant_id TEXT NOT NULL,
+  actor_id TEXT,
+  actor_role TEXT,
+  action TEXT NOT NULL,                -- login / config_update / member_create / vote_reset
+  target_type TEXT,                    -- vote / member / config
+  target_id TEXT,
+  ip TEXT,
+  user_agent TEXT,
+  before_value TEXT,
+  after_value TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+- **Free/Basic/Standard/Pro**: 단일 D1 내 `tenant_id` 행 격리. 모든 쿼리에 `WHERE tenant_id = ?` 강제 적용.
+- **Enterprise**: 별도 D1 인스턴스(`db_shard = 'dedicated'`) 또는 분리된 Worker 환경에서 운영, 계약상 물리적 격리 제공.
+- **조회 방어**: `admin/members.js`, `admin/surveys.js` 등 모든 관리 API는 먼저 로그인한 관리자의 `tenant_id`를 세션/JWT에서 추출하고, 요청 파라미터의 `tenant_id`는 신뢰하지 않습니다.
+
+#### 11.1.2 역할 기반 접근 제어 (RBAC)
+
+| 역할 | 권한 범위 |
+|------|----------|
+| **owner** | 결제·청구, 테넌트 삭제, 관리자 초대/삭제, 모든 설정 변경 |
+| **admin** | 안건/설문 생성·수정·삭제, 회원 등록·삭제, 결과 확인, 감사로그 조회 |
+| **manager** | 회원 등록, 안건 편집(삭제 제외), 결과 확인 |
+| **viewer** | 결과·감사로그 조회만 가능 |
+
+- 권한 체크는 **Middleware 레벨**에서 수행: `requireRole('admin')` 등.
+- 관리자 추가 시 초대 링크(24시간 유효) 발송, 초기 비밀번호 강제 재설정.
+- 모든 관리자 행동은 `audit_logs`에 기록, 수정/삭제는 논리 삭제(soft delete) 권장.
+
+#### 11.1.3 설정·브랜딩 격리
+
+```sql
+CREATE TABLE tenant_settings (
+  tenant_id TEXT PRIMARY KEY,
+  design JSON,
+  custom_domain TEXT,
+  saml_config TEXT,          -- Enterprise SSO
+  webhook_url TEXT,
+  retention_days INTEGER,    -- 데이터 보관 기간
+  updated_at DATETIME
+);
+```
+
+- 테넌트 A의 브랜드 컬러·도메인·웹훅은 테넌트 B와 완전히 분리.
+- 커스텀 도메인은 Cloudflare for SaaS로 TLS 인증서 자동 발급, 테넌트별 격리.
+
+---
+
+### 11.2 회원 휴태폰 번호의 해싱/암호화 및 법규 준수
+
+#### 11.2.1 현재 상태와 취약점
+
+- 현재 `functions/api/admin/members.js`에서 회원의 `phone`을 **평문 그대로** D1에 저장하고 있습니다.
+- `functions/api/send-sms.js`는 평문 전화번호로 회원을 매칭합니다.
+- 휴태폰 번호는 **개인정볼볼호법상 고유식별정보는 아니나 민감정보에 준하는 식별자**이며, 결합 시 특정 개인을 식별할 수 있어 안전한 조치가 필요합니다.
+
+#### 11.2.2 저장 방식 개선안
+
+**A. 복원 불가능한 해시 (권장, SMS 매칭용)**
+
+SMS 인증 시 회원을 찾을 때만 사용합니다. 동일 번호 재등록 방지가 필요 없는 경우 적합합니다.
+
+```javascript
+// 회원 등록 시
+const phoneNorm = normalizePhone(inputPhone);           // "010-1234-5678" → "01012345678"
+const salt = crypto.getRandomValues(new Uint8Array(16));
+const phoneHash = await bcrypt.hash(phoneNorm + tenantSalt, 12);
+// 저장: { phone_hash: phoneHash }
+
+// SMS 발송 시
+const candidateHash = await bcrypt.hash(inputPhoneNorm + tenantSalt, 12);
+// 전체 회원 hash를 순회 비교 (상수 시간 회피 위해 고정 딜레이 추가)
+```
+
+- **bcrypt/Argon2id** 사용, work factor는 최소 10회 이상.
+- 단점: 번호 검색·중복 확인 시 전체 스캔 필요 → 대규모 테넌트에서는 비효율.
+
+**B. 검색 가능한 암호화 (권장, 운영 효율용)**
+
+대부분의 SaaS에 적합한 방식입니다.
+
+```javascript
+// 1. 전화번호 정규화
+const phoneNorm = normalizePhone(inputPhone);
+
+// 2. HMAC 블라인드 인덱스 (검색용)
+const indexKey = env.PHONE_INDEX_HMAC_KEY;              // 테넌트별 또는 글로벌 HMAC 키
+const phoneIndex = await hmacSha256(phoneNorm, indexKey);
+
+// 3. AES-256-GCM 암호화
+const iv = crypto.getRandomValues(new Uint8Array(12));
+const encKey = await deriveKey(env.PHONE_ENC_MASTER_KEY, tenant_id);
+const phoneEnc = await aesGcmEncrypt(phoneNorm, encKey, iv);
+
+// 저장: { phone_index: phoneIndex, phone_enc: phoneEnc }
+// 조회: WHERE tenant_id = ? AND phone_index = ?
+```
+
+- **HMAC 인덱스**로 동일 번호 중복 확인 및 SMS 매칭을 O(1)로 수행.
+- **AES-256-GCM** 암호문은 필요 시 복호화 가능(고객 지원·분쟁 대응), 평문은 메모리에서만 존재.
+- `crypto.subtle`의 PBKDF2/AES-GCM/HMAC을 사용, Cloudflare Workers에서 네이티브 지원.
+
+**C. 관리자 화면 마스킹**
+
+- `010-****-5678` 형태로 마스킹, 상세 열기 시에만 복호화 및 추가 인증(MFA 또는 재로그인).
+- CSV 다운로드 시 마스킹 옵션 기본값, 전체 다운로드는 owner 권한 + 감사로그 기록.
+
+#### 11.2.3 개인정볼볼호법 준수 체크리스트
+
+| 항목 | 적용 방안 |
+|------|----------|
+| **수집·이용 목적의 명확화** | 관리자 페이지 회원 등록 시 "SMS 본인인증 및 투표 참여 안내" 목적 고지 |
+| **최소 수집** | 이름·휴태폰 번호만 필수, 이메일은 선택항목 |
+| **보유 기간** | 테넌트 설정 `retention_days` (기본 1년), 만료 시 자동 파기 |
+| **파기 절차** | `DELETE` + 덮어쓰기, D1 백업에서도 해당 기간 이후 삭제 (R2 수명주기 정책) |
+| **이용자 권리 보장** | 관리자가 회원 삭제 요청 시 즉시 삭제, 투표용지는 익명이므로 개별 삭제 불필요 |
+| **처리 위탁** | CoolSMS/알리고 등 SMS 대행사 위탁 시 위탁계약 체결 및 공개 |
+| **국외 이전** | Cloudflare 글로벌 네트워크 이용 시 국외 이전 고지, 필요 시 국내 전용 설정 |
+| **영향평가 (PIA)** | 1만 명 이상 회원 또는 민감정보 처리 시 PIA 실시 |
+
+#### 11.2.4 정보통신망법(망법) 준수
+
+- **제50조(영리목적 광고성 정보 전송 제한)**: SMS 리마인드는 "투표 참여 안내"로서 정보성 메시지로 볼 수 있으나, 광고성 문구가 포함되면 **사전 수신동의**가 필요합니다. 투표 발송 시 수신동의 체크박스를 별도로 수집합니다.
+- **전송 기록 보관**: 발송 시간, 수신 번호(마스킹·해시), 내용, 성공 여부를 `sms_logs`에 2년 보관.
+- **발신번호 사전등록**: CoolSMS/알리고에서 발신번호를 미리 등록하고 변조 방지.
+- **스팸 방지**: 1일 1회 이상 리마인드 금지, 수신 거부(옵트아웃) 처리 워크플로우 마련.
+
+#### 11.2.5 투표 익명성과 개인정보의 분리
+
+- 투표용지(`ballots`)에는 `tenant_id`, `survey_id`, `question_id`, `choice`만 저장하고 `member_id`는 절대 저장하지 않습니다.
+- 참여 여부(`voted`)는 회원 테이블에 별도 플래그로 저장, 이 둘은 물리적으로 분리.
+- 감사로그에도 "누가 어떤 선택을 했는지"가 아닌 "누가 투표를 완료했는지"만 기록.
+
+---
+
+### 11.3 구글 플레이스토어 등록을 위한 개인정보처리방침 및 보안 가이드
+
+구글 플레이스토어에 앱(또는 PWA/TWA)을 등록하려면 **개인정보처리방침(Privacy Policy)** 링크와 **데이터 안전(Data Safety)** 섹션을 반드시 제공해야 합니다.
+
+#### 11.3.1 개인정보처리방침 필수 기재사항
+
+아래 내용을 포함한 HTML/마크다운 문서를 `/privacy.html` 또는 `/privacy` 경로에 게시하고 플레이스토어에 등록합니다.
+
+```
+1. 처리자 정보
+   - 상호: (회사명)
+   - 주소, 대표, 연락처, 개인정보 보호책임자 이메일
+
+2. 수집하는 개인정보 항목
+   - 필수: 이름, 휴태폰 번호, 투표 참여 여부
+   - 선택: 이메일
+   - 자동수집: IP 주소, 기기 식별자(Android ID/Ad ID), 브라우저 UA, 접속 로그
+
+3. 수집 및 이용 목적
+   - 투표 참여자 본인확인, 결과 집계, SMS 인증번호 발송, 리마인드 알림,
+     고객지원, 서비스 개선, 부정 이용 방지
+
+4. 보유 및 이용 기간
+   - 회원(테넌트) 탈퇴 시 또는 관리자 삭제 요청 시 즉시 파기
+   - 법령상 의무 보관 기간(전자상거래법 등) 동안 별도 보관
+
+5. 개인정보의 제3자 제공
+   - 원칙적으로 제공하지 않음
+   - SMS 발송 대행사(CoolSMS, 알리고 등)에 필요 최소한 위탁
+
+6. 이용자 권리 및 행사 방법
+   - 염란, 정정, 삭제, 처리정지 요청은 개인정보 보호책임자 이메일로 접수
+   - 관리자(테넌트)가 등록한 회원 정보에 대해서는 해당 조직의 관리자에게 요청
+
+7. 개인정보의 안전성 확보 조치
+   - 휴태폰 번호 AES-256-GCM 암호화 + HMAC 인덱스
+   - 관리자 비밀번호 bcrypt/Argon2id 해싱
+   - TLS 1.3 적용, 상수 시간 비교, 감사로그
+
+8. 계정 삭제 (Data deletion)
+   - 관리자가 테넌트 설정에서 "테넌트 삭제" 요청 시 모든 데이터 영구 삭제
+   - 삭제 완료 기한: 요청일로부터 30일 이내
+   - 삭제 범위: 회원 정보, 투표 설정, 투표용지, 감사로그, 백업본
+
+9. 민감정보 및 광고 ID
+   - 본 서비스는 민감정보를 수집하지 않음
+   - 광고 ID는 수집하지 않으며, 추후 광고 SDK 도입 시 별도 동의 및 이 방침 갱신
+
+10. 정책 변경 고지
+    - 변경 시 서비스 내 공지 및 이메일 안내 (7일 전)
+```
+
+#### 11.3.2 Google Play 데이터 안전(Data Safety) 작성 가이드
+
+| 질문 | 답변 예시 |
+|------|----------|
+| **데이터 수집 여부** | 예 (이름, 휴태폰 번호, 이메일, IP, 기기 정보) |
+| **데이터 공유 여부** | 예, SMS 발송 대행사와 휴태폰 번호 공유 (선택적) |
+| **데이터 암호화** | 예, 전송 시 TLS, 저장 시 AES-256-GCM |
+| **계정 삭제 제공** | 예, 관리자 페이지 및 이메일 요청 |
+| **데이터 삭제 요청 방법** | privacy@example.com 또는 관리자 페이지 |
+| **민감정보** | 없음 (건강, 금융, 생체인식 등 미수집) |
+
+#### 11.3.3 보안 가이드 (OWASP Mobile Top 10 대응)
+
+| 위협 | 대응 |
+|------|------|
+| **M1: 잘못된 플랫폼 사용** | Android WebView에서 `setJavaScriptEnabled(true)` 시만 허용, 파일 접근 제한 |
+| **M2: 안전하지 않은 데이터 저장** | 휴태폰 번호/비밀번호/세션 토큰을 SharedPreferences에 평문 저장 금지, EncryptedSharedPreferences 사용 |
+| **M3: 안전하지 않은 통신** | TLS 1.3 강제, certificate pinning 적용, cleartext traffic 금지 |
+| **M4: 불충분한 인증** | 관리자는 이메일+비밀번호+TOTP, 투표자는 SMS OTP + 세션 토큰 |
+| **M5: 불충분한 암호화** | AES-256-GCM, HMAC-SHA256, PBKDF2 사용, 하드코딩된 키 금지 |
+| **M6: 안전하지 않은 권한** | SMS 권한 불필요, 인앱브라우저 우회만 사용, 연락처/칼라 권한 요청 금지 |
+| **M7: 취약한 코드 품질** | 정적 분석(SonarQube), 종속성 취약점 스캔(Dependabot) |
+| **M8: 코드 변조** | Play App Signing, Play Integrity API 연동, 루팅/탈옥 감지 |
+| **M9: 역공학** | 난독화(ProGuard/R8), 네이티브 라이브러리 사용 권장 |
+| **M10: 불필요한 기능** | 디버그 로그·백업 플래그 제거, 개발/운영 환경 분리 |
+
+#### 11.3.4 등록 심사 통과를 위한 추가 정책
+
+- **Prominent Disclosure**: 권한이나 민감 데이터 수집 직전에 **인앱 다이얼로그**로 명확히 고지.
+- **대상 연령**: 투표 서비스 특성상 18세 이상 또는 법정대리인 동의가 필요한 국가/지역별 설정.
+- **광고**: 광고 SDK 미사용 시 "광고 없음"으로 표기, 사용 시 별도 동의 UI 필요.
+- **계정 삭제 UI**: 관리자 페이지 또는 앱 설정 메뉴에 "모든 데이터 삭제" 버튼 제공, 삭제 후 30일 이내 완료 보장.
+- ** deceptive behavior**: 투표 조작 의심 방지를 위해 결과 페이지에 투표 수·참여자 수·감사로그 링크 투명 공개.
+
+---
+
+### 11.4 현재 구현 대비 개선 로드맵
+
+| 단계 | 기간 | 작업 | 검증 기준 |
+|------|------|------|----------|
+| **11.4.1 단기** | 1~2주 | 휴태폰 번호 AES-256-GCM 암호화 + HMAC 인덱스 적용, 관리자 화면 마스킹 | DB에 평문 phone 컬럼 0건, 복호화/검색 단위 테스트 통과 |
+| **11.4.2 단기** | 1~2주 | 관리자 비밀번호 bcrypt/Argon2id 해싱, 상수 시간 비교 유지 | Rainbow table 대응, 타이밍 공격 테스트 통과 |
+| **11.4.3 중기** | 3~4주 | `tenant_id` 도입, 모든 API에 tenant 범위 검증, audit_logs 테이블 추가 | 크로스 테넌트 접근 취약점 테스트 실패 0건 |
+| **11.4.4 중기** | 3~4주 | RBAC Middleware 적용, 초대 기반 관리자 등록 | owner/admin/manager/viewer 각 역할별 권한 테스트 통과 |
+| **11.4.5 중기** | 2~3주 | 개인정보처리방침 페이지 작성, Google Play 데이터 안전 등록 | 플레이스토어 심사 거부 사항 0건 |
+| **11.4.6 장기** | 6~12개월 | ISMS-P/ISO 27001 준비, 취약점 진단, 모의해킹 | 보안 인증 취득 또는 준비 완료 |
+
+---
+
+## 12. 다음 단계 (즉시 실행 가능)
+
+### 12.1 2주 내 실행
 1. **D1 스키마 설계 및 마이그레이션 PoC**
    - `tenants`, `votes`, `members`, `ballots`, `audit_logs` 테이블 생성
 2. **로그인/회원가입 페이지 추가**
@@ -412,7 +712,7 @@ CREATE TABLE audit_logs (... tenant_id TEXT, action TEXT, actor TEXT, ...);
 3. **요금제 페이지 디자인**
    - Free / Basic / Standard / Pro / Enterprise UI/UX
 
-### 11.2 1개월 내 실행
+### 12.2 1개월 내 실행
 4. **결제 연동 (토스페이먼츠)**
    - 1회 투표 건당 결제, 사용량(참여 인원) 기반 자동 과금
 5. **CSV 회원 등록**
@@ -420,7 +720,7 @@ CREATE TABLE audit_logs (... tenant_id TEXT, action TEXT, actor TEXT, ...);
 6. **SMS 발송 연동**
    - 알리고/세티즌 연동, 발송 이력 저장
 
-### 11.3 3개월 내 실행
+### 12.3 3개월 내 실행
 7. **파일럿 고객 3곳 확보**
    - 아파트 관리사무소 또는 주민자치회 대상
 8. **성공 사례 콘텐츠 제작**
@@ -430,7 +730,7 @@ CREATE TABLE audit_logs (... tenant_id TEXT, action TEXT, actor TEXT, ...);
 
 ---
 
-## 12. 결론
+## 13. 결론
 
 이 투표 시스템은 기술적으로는 이미 **MVP를 넘어선 상태**입니다. 남은 과제는 **"누가 왜 돈을 내고 쓰는가"**를 명확히 하는 것입니다.
 
@@ -442,5 +742,6 @@ CREATE TABLE audit_logs (... tenant_id TEXT, action TEXT, actor TEXT, ...);
 4. **SMS + 감사로그 + 브랜딩으로 차별화**: 구글폼·네이버폼과 묣음 경쟁하지 않는다.
 5. **성과 기반 업셀**: 투표 완료율, 시간 절감, 관리 편의성, 비용 절감을 수치화해 제시한다.
 6. **커뮤니티 + 파트너십**: 직접 영업보다 관리사무소장·주민자치회 활동가를 통해 확산한다.
+7. **보안·개인정보 보호를 설계 단계에 내재화**: 테넌트 격리, 전화번호 암호화, 개인정보처리방침, 플레이스토어 보안 가이드를 미리 준비하여 신뢰와 심사 통과를 동시에 확보한다.
 
 이 로드맵을 따라 6개월 내 첫 유료 고객 30곳, 1년 내 연 매출 ₩40M은 현실적인 목표입니다.

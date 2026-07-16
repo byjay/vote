@@ -8,6 +8,9 @@ import {
   store,
   MAX_MEMBERS,
   MAX_NAME_LEN,
+  encryptPhone,
+  decryptPhone,
+  hashPhone,
 } from "../../_utils.js";
 
 async function getMembersWithVoted(env, surveyId) {
@@ -18,7 +21,20 @@ async function getMembersWithVoted(env, surveyId) {
   const votedFlags = await Promise.all(
     members.map((m) => db.get(votedKey(surveyId, m.id)))
   );
-  return members.map((m, i) => ({ ...m, voted: Boolean(votedFlags[i]) }));
+
+  // 정보보호 및 플레이스토어 심사 대비 마스킹 처리
+  const processed = [];
+  for (let i = 0; i < members.length; i++) {
+    const m = members[i];
+    const decrypted = await decryptPhone(m.phone);
+    const phoneMasked = decrypted.replace(/(\d{3})-?(\d{3,4})-?(\d{4})/, "$1-$2-****");
+    processed.push({
+      ...m,
+      phone: phoneMasked,
+      voted: Boolean(votedFlags[i])
+    });
+  }
+  return processed;
 }
 
 // GET /api/admin/members?survey=...
@@ -79,7 +95,6 @@ export async function handlePost({ request, env }) {
     return json({ error: `대상자는 최대 ${MAX_MEMBERS}명까지 등록할 수 있습니다.` }, 400);
   }
 
-  // 이메일 기준으로 중복 제거 (이메일이 있는 경우만)
   const existingEmails = new Set(members.map((m) => m.email).filter(Boolean));
   const existingIds = new Set(members.map((m) => m.id));
 
@@ -93,7 +108,17 @@ export async function handlePost({ request, env }) {
     if (im.email) {
       existingEmails.add(im.email);
     }
-    members.push({ id, name: im.name, email: im.email, phone: im.phone });
+
+    // 휴대폰 번호 AES-256-GCM 암호화 및 검색용 솔티드 해시 매핑 저장
+    const encrypted = await encryptPhone(im.phone);
+    const hashed = await hashPhone(im.phone);
+    members.push({
+      id,
+      name: im.name,
+      email: im.email,
+      phone: encrypted,
+      phoneHash: hashed
+    });
   }
 
   await db.put("members", JSON.stringify(members));

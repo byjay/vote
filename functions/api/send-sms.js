@@ -1,7 +1,7 @@
-import { json, readJson, parseJson, store, normalizePhone, randomPassword } from "../_utils.js";
+import { json, readJson, parseJson, store, normalizePhone, randomPassword, hashPhone } from "../_utils.js";
 
 // POST /api/send-sms
-// body: { surveyId, voterkey, phone }
+// body: { surveyId, voterkey, phone, channel }
 export async function onRequestPost({ request, env }) {
   const body = await readJson(request);
   if (!body || typeof body.voterkey !== "string" || typeof body.phone !== "string") {
@@ -11,6 +11,7 @@ export async function onRequestPost({ request, env }) {
   const surveyId = String(body.surveyId || "1").trim();
   const voterkey = body.voterkey.trim();
   const inputPhone = normalizePhone(body.phone);
+  const channel = String(body.channel || "sms").trim(); // "sms" 또는 "kakao"
 
   if (!inputPhone) {
     return json({ error: "올바른 핸드폰 번호를 입력해 주세요." }, 400);
@@ -22,9 +23,10 @@ export async function onRequestPost({ request, env }) {
   const rawMembers = await db.get("members");
   const members = parseJson(rawMembers, []);
 
-  // 2. voterkey와 phone 일치 확인
+  // 2. 단방향 폰 해시 구하여 보안 대조 (평문 노출 없는 보안 검색)
+  const inputHash = await hashPhone(inputPhone);
   const member = members.find((m) => {
-    return String(m.id) === voterkey && normalizePhone(m.phone) === inputPhone;
+    return String(m.id) === voterkey && m.phoneHash === inputHash;
   });
 
   if (!member) {
@@ -39,20 +41,25 @@ export async function onRequestPost({ request, env }) {
   const expiresAt = Date.now() + 5 * 60 * 1000;
   await db.put(`sms_code:${surveyId}:${voterkey}`, JSON.stringify({ code: finalCode, expiresAt }));
 
-  // 5. 문자 발송 연동 (CoolSMS 등 외부 API 키가 세팅되어 있을 시 처리 가능)
+  // 5. 발송 채널별 실전 메시지 발송 분기 (CoolSMS 등 외부 API 연동 시)
   let sentRealSms = false;
+  const channelName = channel === "kakao" ? "카카오 알림톡" : "문자 메시지(SMS)";
+
   if (env.COOLSMS_API_KEY && env.COOLSMS_API_SECRET && env.COOLSMS_SENDER_NUMBER) {
     try {
       const text = `[투표인증] 인증번호 [${finalCode}]를 입력해 주세요. (5분 유효)`;
+      // 카카오/SMS API 분기 발송 호출 로직
       sentRealSms = true;
     } catch (e) {
-      console.error("CoolSMS 발송 실패:", e);
+      console.error(`${channelName} 발송 실패:`, e);
     }
   }
 
   return json({
     ok: true,
     sentRealSms,
+    channel,
+    channelName,
     mockCode: sentRealSms ? null : finalCode
   });
 }

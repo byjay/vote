@@ -816,6 +816,18 @@
           <input type="tel" id="inputPhoneNum" class="input-field" placeholder="01012345678" style="padding: 12px; border-radius: 6px; border: 1px solid #ccc; width: 100%; box-sizing: border-box;" />
         </div>
         
+        <div class="field" style="margin-bottom: 20px; text-align: left;">
+          <div class="input-label-info" style="margin-bottom:8px;">발송 수단 선택</div>
+          <div style="display:flex; gap:20px; align-items:center;">
+            <label style="display:flex; align-items:center; font-size:0.9em; font-weight:700; color:#333; cursor:pointer;">
+              <input type="radio" name="authChannel" value="sms" checked style="margin-right:6px; width:18px; height:18px; cursor:pointer;" /> 문자 (SMS)
+            </label>
+            <label style="display:flex; align-items:center; font-size:0.9em; font-weight:700; color:#333; cursor:pointer;">
+              <input type="radio" name="authChannel" value="kakao" style="margin-right:6px; width:18px; height:18px; cursor:pointer;" /> 카카오톡
+            </label>
+          </div>
+        </div>
+        
         <button id="btnSendSms" class="primary" type="button" style="width:100%; padding:12px; border-radius:6px; font-weight:700; margin-bottom: 20px; background:#0070f3; border-color:#0070f3;">인증번호전송</button>
         
         <div id="smsCodeFieldWrap" class="hidden" style="text-align: left;">
@@ -870,6 +882,11 @@
         <div id="voterAlreadyVotedInfoBox" style="margin-top:20px; padding:16px; border:1px dashed #ccc; border-radius:12px; background:#fafafa; text-align:left; font-size:0.88em;">
           <div style="font-weight:800; color:#0056b3; margin-bottom:10px; border-bottom:1px solid #eee; padding-bottom:6px;">📋 나의 선택 내역</div>
           <div id="voterVotedAnswersList" style="display:flex; flex-direction:column; gap:8px;"></div>
+        </div>
+        
+        <!-- 플레이스토어 동의철회 및 데이터 영구삭제 버튼 -->
+        <div style="margin-top: 20px; text-align: center;">
+          <button id="btnDeleteMyData" style="background:none; border:none; color:#888; text-decoration:underline; font-size:0.78em; cursor:pointer;" type="button">내 투표인증 데이터 삭제 및 동의 철회</button>
         </div>
         
         <div class="apartment-footer-name" id="doneApartmentName">-</div>
@@ -1260,30 +1277,49 @@ function initAdminBtn() {
 }
 
 function initAppEvents() {
-  // 인증번호 전송
+  // 인증번호 전송 (문자/카카오톡 채널 선택 지원)
   $("btnSendSms").addEventListener("click", async () => {
     const phone = $("inputPhoneNum").value.trim();
     if (!phone) {
       alert("핸드폰 번호를 입력해 주세요.");
       return;
     }
+
+    const channelInput = document.querySelector('input[name="authChannel"]:checked');
+    const channel = channelInput ? channelInput.value : "sms";
     
     $("globalAppError").classList.add("hidden");
     const { ok, data } = await fetchJson("/api/send-sms", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ surveyId: SURVEY_ID, voterkey: VOTER_KEY, phone })
+      body: JSON.stringify({ surveyId: SURVEY_ID, voterkey: VOTER_KEY, phone, channel })
     });
     
     if (ok) {
       $("smsCodeFieldWrap").classList.remove("hidden");
       if (data.mockCode) {
-        alert("[테스트 안내] 모의 인증번호 [" + data.mockCode + "]가 발급되었습니다. 인증번호 칸에 입력해 주세요.");
+        alert("[테스트 안내] 모의 " + data.channelName + " 인증번호 [" + data.mockCode + "]가 발급되었습니다. 인증번호 칸에 입력해 주세요.");
       } else {
-        alert("인증번호가 발송되었습니다.");
+        alert(data.channelName + "으로 인증번호가 발송되었습니다.");
       }
     } else {
       alert(data.error || "인증번호 발송 실패");
+    }
+  });
+
+  // 플레이스토어 심사용 개인인증 정보 완전 파기 (잊힐 권리 동의철회 연동)
+  $("btnDeleteMyData").addEventListener("click", async () => {
+    if (!confirm("정말 본인의 핸드폰 인증 정보 및 투표 이력을 서버에서 완전히 삭제하시겠습니까?\n삭제 시 본인 인증 정보가 영구 파기됩니다.")) return;
+    const { ok, data } = await fetchJson("/api/delete-my-data", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ surveyId: SURVEY_ID, voterkey: VOTER_KEY })
+    });
+    if (ok) {
+      alert("개인 정보 및 인증 데이터가 영구적으로 완전 파기되었습니다.");
+      location.reload();
+    } else {
+      alert(data.error || "데이터 삭제 중 오류가 발생했습니다.");
     }
   });
 

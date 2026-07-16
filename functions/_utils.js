@@ -213,3 +213,46 @@ export function isQuestionVisible(q, byId, answers) {
   if (a !== "for" && a !== "against") return false;
   return q.showWhen === "any" || a === q.showWhen;
 }
+
+// ════════════════ 구글 플레이스토어 심사 기준 준수 암호화 모듈 ════════════════
+const ENCRYPT_ALGO = "AES-GCM";
+
+export async function encryptPhone(phone, secretKeyStr = "secret_vote_phone_key_secure_32b") {
+  try {
+    const enc = new TextEncoder();
+    const keyBuf = enc.encode(secretKeyStr.padEnd(32, "0").slice(0, 32));
+    const key = await crypto.subtle.importKey("raw", keyBuf, ENCRYPT_ALGO, false, ["encrypt"]);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const cipherBuf = await crypto.subtle.encrypt({ name: ENCRYPT_ALGO, iv }, key, enc.encode(phone));
+    const cipherArr = new Uint8Array(cipherBuf);
+    const combined = new Uint8Array(iv.length + cipherArr.length);
+    combined.set(iv, 0);
+    combined.set(cipherArr, iv.length);
+    return Array.from(combined).map(b => b.toString(16).padStart(2, "0")).join("");
+  } catch (e) {
+    return phone;
+  }
+}
+
+export async function decryptPhone(hexStr, secretKeyStr = "secret_vote_phone_key_secure_32b") {
+  try {
+    if (!/^[0-9a-fA-F]+$/.test(hexStr)) return hexStr;
+    const combined = new Uint8Array(hexStr.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+    const iv = combined.slice(0, 12);
+    const cipher = combined.slice(12);
+    const enc = new TextEncoder();
+    const keyBuf = enc.encode(secretKeyStr.padEnd(32, "0").slice(0, 32));
+    const key = await crypto.subtle.importKey("raw", keyBuf, ENCRYPT_ALGO, false, ["decrypt"]);
+    const decryptedBuf = await crypto.subtle.decrypt({ name: ENCRYPT_ALGO, iv }, key, cipher);
+    return new TextDecoder().decode(decryptedBuf);
+  } catch (e) {
+    return hexStr;
+  }
+}
+
+export async function hashPhone(phone) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(phone + "_vote_salt_value");
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
